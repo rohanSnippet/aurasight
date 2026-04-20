@@ -57,6 +57,21 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        warning: "hsl(var(--warning))",
+        success: "hsl(var(--success))",
+        "primary-glow": "hsl(var(--primary-glow))",
+      },
+      backgroundImage: {
+        "gradient-aura": "var(--gradient-aura)",
+        "gradient-surface": "var(--gradient-surface)",
+      },
+      boxShadow: {
+        glow: "var(--shadow-glow)",
+        elevated: "var(--shadow-elevated)",
+      },
+      fontFamily: {
+        display: ["'Space Grotesk'", "system-ui", "sans-serif"],
+        mono: ["'JetBrains Mono'", "ui-monospace", "monospace"],
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -80,10 +95,20 @@ export default {
             height: "0",
           },
         },
+        "pulse-aura": {
+          "0%, 100%": { opacity: "0.6", transform: "scale(1)" },
+          "50%": { opacity: "1", transform: "scale(1.05)" },
+        },
+        scan: {
+          "0%": { transform: "translateY(-100%)" },
+          "100%": { transform: "translateY(100%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "pulse-aura": "pulse-aura 2.4s ease-in-out infinite",
+        scan: "scan 2.2s ease-in-out infinite",
       },
     },
   },
