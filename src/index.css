@@ -8,35 +8,46 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* AuraSight — dark, clinical, high-contrast triage UI */
+    --background: 222 32% 6%;
+    --foreground: 180 30% 96%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card: 222 28% 9%;
+    --card-foreground: 180 30% 96%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover: 222 28% 9%;
+    --popover-foreground: 180 30% 96%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 168 84% 52%;
+    --primary-foreground: 222 32% 6%;
+    --primary-glow: 168 90% 65%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 222 24% 14%;
+    --secondary-foreground: 180 30% 96%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 222 20% 14%;
+    --muted-foreground: 215 16% 65%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 280 70% 60%;
+    --accent-foreground: 180 30% 96%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 180 30% 96%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --warning: 38 95% 58%;
+    --success: 142 70% 48%;
 
-    --radius: 0.5rem;
+    --border: 222 22% 16%;
+    --input: 222 22% 16%;
+    --ring: 168 84% 52%;
+
+    --radius: 0.875rem;
+
+    --gradient-aura: linear-gradient(135deg, hsl(168 84% 52%), hsl(280 70% 60%));
+    --gradient-surface: linear-gradient(180deg, hsl(222 28% 9%), hsl(222 32% 6%));
+    --shadow-glow: 0 0 40px hsl(168 84% 52% / 0.35);
+    --shadow-elevated: 0 20px 50px -20px hsl(0 0% 0% / 0.6);
+    --transition-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 
     --sidebar-background: 0 0% 98%;
 
