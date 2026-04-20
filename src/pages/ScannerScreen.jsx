@@ -1,202 +1,191 @@
-import { useEffect, useRef, useState } from "react";
-import { v4 as uuidv4 } from "uuid";
-import { Camera, CameraOff, Zap, Loader2 } from "lucide-react";
-import { preprocessFrame, frameToCompressedBase64 } from "@/lib/preprocess";
-import { predict, getSession } from "@/lib/inference";
-import { insertScan } from "@/lib/db";
-import { tick } from "@/lib/syncManager";
-import AuraLogo from "@/components/AuraLogo";
-import SyncStatusBar from "@/components/SyncStatusBar";
+import React, { useRef, useState } from 'react';
+import { UploadCloud, Image as ImageIcon, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { insertScan, markSynced } from '../lib/db';
 
-const ScannerScreen = () => {
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const [streaming, setStreaming] = useState(false);
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [lastResult, setLastResult] = useState(null);
-  const [modelReady, setModelReady] = useState(false);
+export default function ScannerScreen() {
+  const fileInputRef = useRef(null);
+  const [status, setStatus] = useState("idle"); // idle, selected, processing, success
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [result, setResult] = useState(null);
 
-  useEffect(() => {
-    // Warm the inference session on mount.
-    getSession().then(() => setModelReady(true));
-  }, []);
+  // 1. Handle Image Selection
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result);
+        setStatus("selected");
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
-  const startCamera = async () => {
-    setError(null);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+  // 2. Process and Sync
+  const captureAndSync = async () => {
+    if (!previewUrl) return;
+    setStatus("processing");
+    
+    const scanId = crypto.randomUUID();
+    const isOnline = navigator.onLine;
+
+    // Immediately save locally to IndexedDB as PENDING
+    await insertScan({
+      id: scanId,
+      label: "Pending Sync",
+      confidence: null,
+      image_b64: previewUrl,
+      width: 0, // Not strictly needed for file uploads unless parsing dimensions
+      height: 0,
+    });
+
+    if (isOnline) {
+      try {
+        // Convert Base64 back to Blob for multipart/form-data upload
+        const fetchResponse = await fetch(previewUrl);
+        const blob = await fetchResponse.blob();
+        
+        const formData = new FormData();
+        formData.append('image', blob, 'scan.jpg');
+        formData.append('scan_id', scanId);
+
+        // Fetch to Django Server
+        const res = await fetch('http://127.0.0.1:8000/api/sync/', {
+          method: 'POST',
+          body: formData
+        });
+        
+        if (!res.ok) throw new Error("Server rejected");
+        const data = await res.json();
+        
+        // Lock the DB record and update UI
+        await markSynced(scanId);
+        setResult({ text: data.result, conf: data.confidence });
+
+      } catch (e) {
+        setResult({ text: "Saved Offline (Pending)", conf: null });
       }
-      setStreaming(true);
-    } catch (e) {
-      setError(e?.message ?? "Camera unavailable");
+    } else {
+      setResult({ text: "Saved Offline (Pending)", conf: null });
     }
+    
+    setStatus("success");
   };
 
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    setStreaming(false);
-  };
-
-  useEffect(() => () => stopCamera(), []);
-
-  const capture = async () => {
-    if (!videoRef.current || !streaming || busy) return;
-    setBusy(true);
-    try {
-      // 1. Tensor preprocessing (explicit) — crop, resize, normalize.
-      const tensor = preprocessFrame(videoRef.current);
-      // 2. On-device inference.
-      const pred = await predict(tensor);
-      // 3. Compress frame to small base64 BEFORE persisting.
-      const { dataUrl, width, height } = await frameToCompressedBase64(videoRef.current);
-      // 4. Insert with UUID → durable, idempotent queue.
-      const id = uuidv4();
-      await insertScan({
-        id,
-        label: pred.label,
-        confidence: pred.confidence,
-        image_b64: dataUrl,
-        width,
-        height,
-        created_at: Date.now(),
-      });
-      setLastResult({ id, ...pred, dataUrl });
-      // 5. Best-effort drain (no-op if offline / lock held).
-      tick();
-    } catch (e) {
-      setError(e?.message ?? "Capture failed");
-    } finally {
-      setBusy(false);
-    }
+  const resetScanner = () => {
+    setPreviewUrl(null);
+    setResult(null);
+    setStatus("idle");
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-5 pb-28 pt-8">
-      <header className="mb-6 flex items-center justify-between">
-        <AuraLogo />
-        <span className="rounded-full border border-border bg-secondary px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-          Scanner
-        </span>
-      </header>
-
-      <h1 className="font-display text-3xl font-semibold tracking-tight">
-        Live triage
-      </h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        224×224 ImageNet-normalized tensor → on-device classifier.
-      </p>
-
-      <div className="relative mt-5 aspect-square w-full overflow-hidden rounded-3xl border border-border bg-black shadow-elevated">
-        <video
-          ref={videoRef}
-          playsInline
-          muted
-          className="h-full w-full object-cover"
-        />
-        {!streaming && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-gradient-surface text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-aura shadow-glow">
-              <Camera className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <p className="font-display text-base font-medium">Camera idle</p>
-            <p className="max-w-xs px-6 text-sm text-muted-foreground">
-              Grant camera access to begin live inference. All processing is local.
-            </p>
-          </div>
-        )}
-
-        {streaming && (
-          <>
-            {/* targeting reticle */}
-            <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-primary/70 shadow-glow" />
-            {/* scanline */}
-            <div className="pointer-events-none absolute inset-x-8 top-8 h-px overflow-hidden">
-              <div className="h-px w-full animate-scan bg-primary shadow-glow" />
-            </div>
-            <div className="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/50 px-2.5 py-1 font-mono text-[10px] uppercase tracking-widest text-primary backdrop-blur">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
-              Live
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="mt-4 flex items-center gap-2">
-        {!streaming ? (
-          <button
-            onClick={startCamera}
-            className="flex-1 rounded-2xl bg-gradient-aura px-4 py-3.5 font-display text-sm font-semibold text-primary-foreground shadow-glow transition-transform active:scale-[0.98]"
+    <div className="flex flex-col items-center justify-center p-4 min-h-[80vh]">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="card glass w-full max-w-md shadow-2xl"
+      >
+        <div className="card-body p-4">
+          
+          {/* Upload Dropzone / Image Preview */}
+          <div 
+            className={`relative overflow-hidden rounded-2xl bg-neutral aspect-square flex flex-col items-center justify-center border-2 border-dashed transition-colors
+              ${status === "idle" ? 'border-slate-600 hover:border-primary cursor-pointer hover:bg-slate-800/50' : 'border-slate-700/50'}`}
+            onClick={() => status === "idle" && fileInputRef.current?.click()}
           >
-            Start camera
-          </button>
-        ) : (
-          <>
-            <button
-              onClick={capture}
-              disabled={busy}
-              className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-aura px-4 py-3.5 font-display text-sm font-semibold text-primary-foreground shadow-glow transition-transform active:scale-[0.98] disabled:opacity-60"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Zap className="h-4 w-4" />
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              accept="image/*" 
+              className="hidden" 
+            />
+
+            {/* State: Idle (Waiting for Upload) */}
+            {status === "idle" && (
+              <div className="text-slate-400 flex flex-col items-center pointer-events-none">
+                <UploadCloud size={48} className="mb-4 opacity-50 text-primary" />
+                <p className="font-semibold tracking-wider text-sm uppercase">Tap to Upload Scan</p>
+                <p className="text-xs mt-2 opacity-50">JPEG or PNG</p>
+              </div>
+            )}
+
+            {/* State: Image Selected Preview */}
+            {(status === "selected" || status === "processing" || status === "success") && (
+              <img src={previewUrl} alt="Patient Scan" className="absolute inset-0 w-full h-full object-cover" />
+            )}
+
+            {/* State: Processing Animation */}
+            <AnimatePresence>
+              {status === "processing" && (
+                <>
+                  <motion.div 
+                    initial={{ top: 0, opacity: 0 }}
+                    animate={{ top: ["0%", "98%", "0%"], opacity: 1 }}
+                    transition={{ duration: 2, ease: "linear", repeat: Infinity }}
+                    className="absolute left-0 w-full h-1 bg-success shadow-[0_0_15px_rgba(34,197,94,0.8)] z-10"
+                  />
+                  <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-0">
+                    <span className="loading loading-ring loading-lg text-success"></span>
+                  </div>
+                </>
               )}
-              {busy ? "Inferring…" : "Capture & classify"}
-            </button>
-            <button
-              onClick={stopCamera}
-              className="flex h-[50px] w-[50px] flex-none items-center justify-center rounded-2xl border border-border bg-card text-foreground transition-colors hover:bg-secondary"
-              aria-label="Stop camera"
-            >
-              <CameraOff className="h-4 w-4" />
-            </button>
-          </>
-        )}
-      </div>
-
-      <p className="mt-3 text-center font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-        Model: {modelReady ? "ready" : "loading"} · Pipeline: 224×224 · NCHW · ImageNet norm
-      </p>
-
-      {error && (
-        <div className="mt-4 rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
-
-      {lastResult && (
-        <div className="mt-4 flex items-center gap-3 rounded-2xl border border-primary/30 bg-card p-3 shadow-elevated">
-          <img
-            src={lastResult.dataUrl}
-            alt={lastResult.label}
-            className="h-16 w-16 flex-none rounded-xl object-cover ring-1 ring-border"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="font-display text-sm font-semibold">{lastResult.label}</p>
-            <p className="font-mono text-[11px] text-muted-foreground">
-              confidence {(lastResult.confidence * 100).toFixed(1)}%
-            </p>
-            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/60">
-              {lastResult.id}
-            </p>
+            </AnimatePresence>
           </div>
-        </div>
-      )}
 
-      <div className="mt-5">
-        <SyncStatusBar />
-      </div>
+          {/* Dynamic Controls Area */}
+          <div className="mt-4">
+            <AnimatePresence mode="wait">
+              {status === "success" ? (
+                <motion.div 
+                  key="success"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="alert alert-success shadow-lg flex-col items-start gap-1"
+                >
+                  <div className="flex w-full justify-between items-center">
+                     <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                       <CheckCircle2 size={20} /> {result.text}
+                     </h3>
+                     {result.conf && <div className="badge badge-lg bg-emerald-700 text-white border-none">{(result.conf * 100).toFixed(1)}%</div>}
+                  </div>
+                  <button onClick={resetScanner} className="btn btn-sm btn-ghost w-full mt-2 text-emerald-900 bg-emerald-500/20 hover:bg-emerald-500/40">
+                    <RefreshCw size={16} /> Analyze New Patient
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div 
+                  key="controls"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex gap-3"
+                >
+                  <button 
+                    onClick={() => fileInputRef.current?.click()} 
+                    className="btn btn-neutral flex-1 shadow-md"
+                    disabled={status === "processing"}
+                  >
+                    <ImageIcon size={20} /> Change
+                  </button>
+                  <button 
+                    onClick={captureAndSync} 
+                    disabled={status !== "selected"}
+                    className="btn btn-primary flex-[2] shadow-lg shadow-primary/30 disabled:opacity-50"
+                  >
+                    {status === "processing" ? (
+                       <span className="loading loading-dots loading-md"></span>
+                    ) : (
+                      <><UploadCloud size={20} /> Analyze Scan</>
+                    )}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+        </div>
+      </motion.div>
     </div>
   );
-};
-
-export default ScannerScreen;
+}
